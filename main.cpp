@@ -4,11 +4,12 @@
 #include <QDebug>
 #include <QFile>
 #include <QXmlStreamReader>
+#include <QXmlStreamWriter>
 #include <QMap>
 #include <QString>
 #include <QStringList>
-
-// For network and JSON
+#include <QList>
+#include <QRegularExpression>
 #include <QtNetwork/QNetworkAccessManager>
 #include <QtNetwork/QNetworkRequest>
 #include <QtNetwork/QNetworkReply>
@@ -18,65 +19,126 @@
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QEventLoop>
-#include <QRegularExpression>
 
-//---------------------------------------------------------------------
-// Parse the TS file into a nested QMap: context -> (source -> translation)
-QMap<QString, QMap<QString, QString>> parseTsFile(const QString &filePath)
+// Structure for location info.
+struct Location {
+    QString filename;
+    int line;
+};
+
+// Structure for holding message information.
+struct MessageInfo {
+    QList<Location> locations;
+    QString source;
+    QString translation;
+    QString translationType; // e.g., "unfinished"
+};
+
+// Parse the TS file into a mapping from context names to lists of messages.
+QMap<QString, QList<MessageInfo>> parseTsFile(const QString &filePath)
 {
-    QMap<QString, QMap<QString, QString>> contextMap;
+    QMap<QString, QList<MessageInfo>> contextMap;
     QFile file(filePath);
     if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
         qWarning() << "Unable to open file:" << filePath;
         return contextMap;
     }
-
     QXmlStreamReader xml(&file);
-    QString currentContext;
+    QString contextName;
 
     while (!xml.atEnd() && !xml.hasError()) {
         QXmlStreamReader::TokenType token = xml.readNext();
         if (token == QXmlStreamReader::StartElement) {
             if (xml.name() == QLatin1String("context")) {
-                currentContext.clear();
-                QMap<QString, QString> messages;
+                contextName.clear();
+                QList<MessageInfo> messages;
                 while (!(xml.tokenType() == QXmlStreamReader::EndElement && xml.name() == QLatin1String("context"))) {
                     if (xml.tokenType() == QXmlStreamReader::StartElement) {
                         if (xml.name() == QLatin1String("name")) {
-                            currentContext = xml.readElementText();
+                            contextName = xml.readElementText();
                         } else if (xml.name() == QLatin1String("message")) {
-                            QString sourceText;
-                            QString translationText;
+                            MessageInfo msg;
                             while (!(xml.tokenType() == QXmlStreamReader::EndElement && xml.name() == QLatin1String("message"))) {
                                 if (xml.tokenType() == QXmlStreamReader::StartElement) {
-                                    if (xml.name() == QLatin1String("source")) {
-                                        sourceText = xml.readElementText();
+                                    if (xml.name() == QLatin1String("location")) {
+                                        QXmlStreamAttributes attrs = xml.attributes();
+                                        Location loc;
+                                        loc.filename = attrs.value("filename").toString();
+                                        loc.line = attrs.value("line").toInt();
+                                        msg.locations.append(loc);
+                                        xml.skipCurrentElement();
+                                    } else if (xml.name() == QLatin1String("source")) {
+                                        msg.source = xml.readElementText();
                                     } else if (xml.name() == QLatin1String("translation")) {
-                                        translationText = xml.readElementText();
+                                        QXmlStreamAttributes attrs = xml.attributes();
+                                        msg.translationType = attrs.value("type").toString();
+                                        msg.translation = xml.readElementText();
                                     }
                                 }
                                 xml.readNext();
                             }
-                            if (!sourceText.isEmpty())
-                                messages.insert(sourceText, translationText);
+                            messages.append(msg);
                         }
                     }
                     xml.readNext();
                 }
-                if (!currentContext.isEmpty())
-                    contextMap.insert(currentContext, messages);
+                if (!contextName.isEmpty())
+                    contextMap.insert(contextName, messages);
             }
         }
     }
-
     if (xml.hasError())
         qWarning() << "XML Parsing Error:" << xml.errorString();
-
     file.close();
     return contextMap;
 }
 
-//---------------------------------------------------------------------
+// Write the updated TS file with the new translations.
+bool writeTsFile(const QString &filePath, const QMap<QString, QList<MessageInfo>> &translations)
+{
+    QFile file(filePath);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        qWarning() << "Unable to open file for writing:" << filePath;
+        return false;
+    }
+    QXmlStreamWriter writer(&file);
+    writer.setAutoFormatting(true);
+    writer.writeStartDocument();
+    writer.writeDTD("<!DOCTYPE TS>");
+    writer.writeStartElement("TS");
+    writer.writeAttribute("version", "2.1");
+    writer.writeAttribute("language", "en_US"); // Adjust if needed.
+
+    // Iterate over contexts.
+    for (auto contextIt = translations.constBegin(); contextIt != translations.constEnd(); ++contextIt) {
+        writer.writeStartElement("context");
+        writer.writeTextElement("name", contextIt.key());
+        // Iterate over messages.
+        for (const MessageInfo &msg : contextIt.value()) {
+            writer.writeStartElement("message");
+            // Write each location.
+            for (const Location &loc : msg.locations) {
+                writer.writeEmptyElement("location");
+                writer.writeAttribute("filename", loc.filename);
+                writer.writeAttribute("line", QString::number(loc.line));
+            }
+            writer.writeTextElement("source", msg.source);
+            writer.writeStartElement("translation");
+            // Set type attribute if translation is still empty.
+            if (msg.translation.isEmpty())
+                writer.writeAttribute("type", "unfinished");
+            writer.writeCharacters(msg.translation);
+            writer.writeEndElement(); // </translation>
+            writer.writeEndElement(); // </message>
+        }
+        writer.writeEndElement(); // </context>
+    }
+    writer.writeEndElement(); // </TS>
+    writer.writeEndDocument();
+    file.close();
+    return true;
+}
+
 // Read API key from file (assumes the file contains the key as plain text)
 QString readApiKeyFromFile(const QString &apiKeyPath)
 {
@@ -85,29 +147,29 @@ QString readApiKeyFromFile(const QString &apiKeyPath)
         qWarning() << "Unable to open API key file:" << apiKeyPath;
         return QString();
     }
-    QString key = keyFile.readAll().trimmed();
+
+    QByteArray raw = keyFile.readAll();
+    if (raw.startsWith("\xEF\xBB\xBF")) {
+        raw.remove(0, 3);
+    }
+    QString key = QString::fromUtf8(raw).trimmed();
+    qDebug() << key;
     keyFile.close();
     return key;
 }
 
-//---------------------------------------------------------------------
-// Send a batch of phrases to the GPT API and return a mapping of source -> translation.
-// The GPT API request is synchronous for simplicity.
-QMap<QString, QString> sendTranslationBatch(const QStringList &phrases, const QString &apiKey,
-                                            const QString &lang, const QString &langPostfix)
+// Send a batch of phrases to the GPT API and return the raw response data.
+QByteArray sendTranslationBatch(const QStringList &phrases, const QString &apiKey,
+                                const QString &lang, const QString &langPostfix)
 {
-    QMap<QString, QString> result;
-
-    // Build the prompt by listing the phrases (each on a new line)
+    // Build the prompt by listing the phrases (each on a new line).
     QString prompt = QString("Translate the following phrases into %1 (%2). Return only a JSON array of objects "
                              "in the format [{\"source\": \"<original>\", \"translation\": \"<translated>\"}].\nPhrases:\n%3")
                          .arg(lang).arg(langPostfix)
                          .arg(phrases.join("\n"));
 
-    // Construct the JSON body for the GPT API request.
     QJsonObject requestBody;
-    // Try either model name as needed:
-    requestBody["model"] = "gpt-4o-mini-2024-07-18";  // or "gpt-4o-mini" if that proves to be correct
+    requestBody["model"] = "gpt-4o-mini";
 
     QJsonArray messages;
     {
@@ -128,76 +190,88 @@ QMap<QString, QString> sendTranslationBatch(const QStringList &phrases, const QS
     QJsonDocument jsonDoc(requestBody);
     QByteArray postData = jsonDoc.toJson();
 
-    // Prepare the network request.
     QNetworkRequest request(QUrl("https://api.openai.com/v1/chat/completions"));
+    request.setAttribute(QNetworkRequest::Http2AllowedAttribute, false);
     request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
     request.setRawHeader("Authorization", QString("Bearer %1").arg(apiKey).toUtf8());
     request.setRawHeader("User-Agent", "QtGPTTranslator/1.0");
 
-    // Force TLS 1.2+ to avoid handshake issues.
     QSslConfiguration sslConfig = QSslConfiguration::defaultConfiguration();
     sslConfig.setProtocol(QSsl::TlsV1_2OrLater);
     request.setSslConfiguration(sslConfig);
 
-    // Log the request for debugging.
-    qDebug() << "Sending request with payload:" << postData;
-
-    // Send the POST request.
+    qDebug() << "Sending request";
     QNetworkAccessManager networkManager;
     QNetworkReply *reply = networkManager.post(request, postData);
 
-    // Synchronously wait for the reply.
     QEventLoop eventLoop;
     QObject::connect(reply, &QNetworkReply::finished, &eventLoop, &QEventLoop::quit);
     eventLoop.exec();
 
-    // Process the reply.
     if (reply->error() != QNetworkReply::NoError) {
         qWarning() << "Network error:" << reply->errorString();
         reply->deleteLater();
-        return result;
+        return QByteArray();
     }
 
     QByteArray responseData = reply->readAll();
     reply->deleteLater();
+    return responseData;
+}
 
-    // Parse the API response.
+// Helper to process an API response and update the translations.
+void processResponse(const QByteArray &responseData, QMap<QString, QList<MessageInfo>> &translations)
+{
+    if (responseData.isEmpty())
+        return;
+
     QJsonDocument responseDoc = QJsonDocument::fromJson(responseData);
     if (responseDoc.isNull() || !responseDoc.isObject()) {
         qWarning() << "Failed to parse API response as JSON.";
-        return result;
+        return;
     }
-
     QJsonObject responseObj = responseDoc.object();
     QJsonArray choices = responseObj["choices"].toArray();
     if (choices.isEmpty()) {
         qWarning() << "No choices returned from API.";
-        return result;
+        return;
     }
-
     QJsonObject firstChoice = choices.first().toObject();
     QJsonObject messageObj = firstChoice["message"].toObject();
     QString content = messageObj["content"].toString();
 
-    // Parse the returned content as JSON.
+    // Remove code block markers if present.
+    QRegularExpression codeBlockRegex("```(?:json)?\\s*([\\s\\S]*?)\\s*```");
+    QRegularExpressionMatch match = codeBlockRegex.match(content);
+    if (match.hasMatch())
+        content = match.captured(1);
+
     QJsonDocument parsedContent = QJsonDocument::fromJson(content.toUtf8());
     if (parsedContent.isNull() || !parsedContent.isArray()) {
         qWarning() << "Failed to parse the returned translation JSON.";
-        return result;
+        return;
     }
-
     QJsonArray translationsArray = parsedContent.array();
+
+    // Build a mapping from source to translation.
+    QMap<QString, QString> translationMapping;
     for (const QJsonValue &val : translationsArray) {
-        if (!val.isObject())
-            continue;
-        QJsonObject obj = val.toObject();
-        QString source = obj["source"].toString();
-        QString translation = obj["translation"].toString();
-        if (!source.isEmpty())
-            result.insert(source, translation);
+        if (val.isObject()) {
+            QJsonObject obj = val.toObject();
+            QString source = obj["source"].toString();
+            QString translation = obj["translation"].toString();
+            if (!source.isEmpty())
+                translationMapping.insert(source, translation);
+        }
     }
 
-    return result;
+    // Update the context map with the translations.
+    for (auto &messages : translations) {
+        for (auto &msg : messages) {
+            if (translationMapping.contains(msg.source))
+                msg.translation = translationMapping.value(msg.source);
+        }
+    }
 }
 
 //---------------------------------------------------------------------
@@ -213,7 +287,6 @@ int main(int argc, char *argv[])
     parser.addHelpOption();
     parser.addVersionOption();
 
-    // Define the command line options.
     QCommandLineOption tsFilePathOption(QStringList() << "t" << "ts_file_path",
                                         "Path to the TS file.",
                                         "ts_file_path");
@@ -221,9 +294,9 @@ int main(int argc, char *argv[])
                                         "Path to the GPT API key file.",
                                         "api_key_path");
     QCommandLineOption apiCallSizeOption(QStringList() << "s" << "api_call_size",
-                                         "Number of words per API call.",
+                                         "Number of source elements per API call.",
                                          "api_call_size",
-                                         "50"); // default is 50
+                                         "50");
     QCommandLineOption langOption("lang",
                                   "Target language for translation.",
                                   "lang");
@@ -239,7 +312,6 @@ int main(int argc, char *argv[])
 
     parser.process(app);
 
-    // Validate required options.
     if (!parser.isSet(tsFilePathOption) ||
         !parser.isSet(apiKeyPathOption) ||
         !parser.isSet(langOption) ||
@@ -273,55 +345,37 @@ int main(int argc, char *argv[])
     }
 
     // Parse the TS file.
-    QMap<QString, QMap<QString, QString>> translations = parseTsFile(tsFilePath);
+    QMap<QString, QList<MessageInfo>> translations = parseTsFile(tsFilePath);
 
-    // Batch processing: accumulate untranslated source phrases based on total word count.
+    // Batch processing: accumulate untranslated source phrases.
     QStringList batchPhrases;
-    int currentWordCount = 0;
 
-    // Iterate over each context and message.
+    // Iterate over each context and its messages.
     for (auto contextIt = translations.begin(); contextIt != translations.end(); ++contextIt) {
-        QMap<QString, QString> &msgMap = contextIt.value();
-        for (auto msgIt = msgMap.begin(); msgIt != msgMap.end(); ++msgIt) {
-            if (!msgIt.key().isEmpty() && msgIt.value().isEmpty()) {
-                int phraseWordCount = msgIt.key().split(QRegularExpression("\\s+"), Qt::SkipEmptyParts).size();
-                if ((currentWordCount + phraseWordCount) > apiCallSize && !batchPhrases.isEmpty()) {
-                    QMap<QString, QString> batchResult = sendTranslationBatch(batchPhrases, apiKey, lang, langPostfix);
-                    for (auto ctxIt = translations.begin(); ctxIt != translations.end(); ++ctxIt) {
-                        QMap<QString, QString> &innerMap = ctxIt.value();
-                        for (auto innerIt = innerMap.begin(); innerIt != innerMap.end(); ++innerIt) {
-                            if (batchResult.contains(innerIt.key()))
-                                innerIt.value() = batchResult.value(innerIt.key());
-                        }
-                    }
+        QList<MessageInfo> &messages = contextIt.value();
+        for (MessageInfo &msg : messages) {
+            if (!msg.source.isEmpty() && msg.translation.isEmpty()) {
+                batchPhrases.append(msg.source);
+                if (batchPhrases.size() >= apiCallSize) {
+                    QByteArray responseData = sendTranslationBatch(batchPhrases, apiKey , lang, langPostfix);
+                    processResponse(responseData, translations);
                     batchPhrases.clear();
-                    currentWordCount = 0;
                 }
-                if (!batchPhrases.contains(msgIt.key())) {
-                    batchPhrases.append(msgIt.key());
-                    currentWordCount += phraseWordCount;
-                }
-            }
-        }
-    }
-    if (!batchPhrases.isEmpty()) {
-        QMap<QString, QString> batchResult = sendTranslationBatch(batchPhrases, apiKey, lang, langPostfix);
-        for (auto ctxIt = translations.begin(); ctxIt != translations.end(); ++ctxIt) {
-            QMap<QString, QString> &innerMap = ctxIt.value();
-            for (auto innerIt = innerMap.begin(); innerIt != innerMap.end(); ++innerIt) {
-                if (batchResult.contains(innerIt.key()))
-                    innerIt.value() = batchResult.value(innerIt.key());
             }
         }
     }
 
-    // Print the updated translations.
-    for (auto contextIt = translations.begin(); contextIt != translations.end(); ++contextIt) {
-        qDebug() << "Context:" << contextIt.key();
-        const QMap<QString, QString> &msgMap = contextIt.value();
-        for (auto msgIt = msgMap.begin(); msgIt != msgMap.end(); ++msgIt) {
-            qDebug() << "   Source:" << msgIt.key() << "-> Translation:" << msgIt.value();
-        }
+    // Process any remaining phrases.
+    if (!batchPhrases.isEmpty()) {
+        QByteArray responseData = sendTranslationBatch(batchPhrases, apiKey, lang, langPostfix);
+        processResponse(responseData, translations);
+        batchPhrases.clear();
+    }
+
+    // Write the updated translations back to the TS file.
+    if (!writeTsFile(tsFilePath, translations)) {
+        qCritical() << "Failed to write back to TS file.";
+        return 1;
     }
 
     return 0;
