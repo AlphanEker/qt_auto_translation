@@ -75,5 +75,6 @@ CMakeLists.txt.user*
 build
 build-*/
 CMakeLists.txt.user
+CMakeFiles
 
 .qt

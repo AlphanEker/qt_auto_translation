@@ -153,7 +153,6 @@ QString readApiKeyFromFile(const QString &apiKeyPath)
         raw.remove(0, 3);
     }
     QString key = QString::fromUtf8(raw).trimmed();
-    qDebug() << key;
     keyFile.close();
     return key;
 }
