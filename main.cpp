@@ -274,9 +274,44 @@ void processResponse(const QByteArray &responseData, QMap<QString, QList<Message
 }
 
 //---------------------------------------------------------------------
+
+struct Config {
+    QString tsFilePath;
+    QString apiKeyPath;
+    int apiCallSize;
+    QString lang;
+    QString langPostfix;
+};
+
+Config loadConfig(const QString &configPath) {
+    QFile configFile(configPath);
+    if (!configFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        qCritical() << "Config dosyası açılamadı!";
+        exit(1);
+    }
+
+    QByteArray jsonData = configFile.readAll();
+    configFile.close();
+
+    QJsonDocument jsonDoc = QJsonDocument::fromJson(jsonData);
+    if (!jsonDoc.isObject()) {
+        qCritical() << "Config dosyası geçersiz!";
+        exit(1);
+    }
+
+    QJsonObject jsonObj = jsonDoc.object();
+    Config config;
+    config.tsFilePath = jsonObj["ts_file_path"].toString();
+    config.apiKeyPath = jsonObj["api_key_path"].toString();
+    config.apiCallSize = jsonObj["api_call_size"].toInt(50);
+    config.lang = jsonObj["lang"].toString();
+    config.langPostfix = jsonObj["lang_postfix"].toString();
+
+    return config;
+}
+//---------------------------------------------------------------------
 // Main function
-int main(int argc, char *argv[])
-{
+int main(int argc, char *argv[]) {
     QCoreApplication app(argc, argv);
     app.setApplicationName("Qt GPT Translator");
     app.setApplicationVersion("1.0");
@@ -286,65 +321,32 @@ int main(int argc, char *argv[])
     parser.addHelpOption();
     parser.addVersionOption();
 
-    QCommandLineOption tsFilePathOption(QStringList() << "t" << "ts_file_path",
-                                        "Path to the TS file.",
-                                        "ts_file_path");
-    QCommandLineOption apiKeyPathOption(QStringList() << "k" << "api_key_path",
-                                        "Path to the GPT API key file.",
-                                        "api_key_path");
-    QCommandLineOption apiCallSizeOption(QStringList() << "s" << "api_call_size",
-                                         "Number of source elements per API call.",
-                                         "api_call_size",
-                                         "50");
-    QCommandLineOption langOption("lang",
-                                  "Target language for translation.",
-                                  "lang");
-    QCommandLineOption langPostfixOption("lang_postfix",
-                                         "Language postfix (e.g., en_EN, tr_TR, ru_RU).",
-                                         "lang_postfix");
+    QCommandLineOption configPathOption(QStringList() << "c" << "config_path",
+                                        "Path to the config JSON file.",
+                                        "config_path",
+                                        "config.json");
 
-    parser.addOption(tsFilePathOption);
-    parser.addOption(apiKeyPathOption);
-    parser.addOption(apiCallSizeOption);
-    parser.addOption(langOption);
-    parser.addOption(langPostfixOption);
-
+    parser.addOption(configPathOption);
     parser.process(app);
 
-    if (!parser.isSet(tsFilePathOption) ||
-        !parser.isSet(apiKeyPathOption) ||
-        !parser.isSet(langOption) ||
-        !parser.isSet(langPostfixOption)) {
-        qCritical() << "Error: Missing required options.";
-        parser.showHelp(1);
-    }
+    QString configPath = parser.value(configPathOption);
+    Config config = loadConfig(configPath);
 
-    QString tsFilePath = parser.value(tsFilePathOption);
-    QString apiKeyPath = parser.value(apiKeyPathOption);
-    bool ok = false;
-    int apiCallSize = parser.value(apiCallSizeOption).toInt(&ok);
-    if (!ok) {
-        qCritical() << "Error: api_call_size must be an integer.";
-        return 1;
-    }
-    QString lang = parser.value(langOption);
-    QString langPostfix = parser.value(langPostfixOption);
-
-    qDebug() << "TS File Path:" << tsFilePath;
-    qDebug() << "API Key Path:" << apiKeyPath;
-    qDebug() << "API Call Size:" << apiCallSize;
-    qDebug() << "Language:" << lang;
-    qDebug() << "Language Postfix:" << langPostfix;
+    qDebug() << "TS File Path:" << config.tsFilePath;
+    qDebug() << "API Key Path:" << config.apiKeyPath;
+    qDebug() << "API Call Size:" << config.apiCallSize;
+    qDebug() << "Language:" << config.lang;
+    qDebug() << "Language Postfix:" << config.langPostfix;
 
     // Read the API key.
-    QString apiKey = readApiKeyFromFile(apiKeyPath);
+    QString apiKey = readApiKeyFromFile(config.apiKeyPath);
     if (apiKey.isEmpty()) {
         qCritical() << "API key is empty or could not be read.";
         return 1;
     }
 
     // Parse the TS file.
-    QMap<QString, QList<MessageInfo>> translations = parseTsFile(tsFilePath);
+    QMap<QString, QList<MessageInfo>> translations = parseTsFile(config.tsFilePath);
 
     // Batch processing: accumulate untranslated source phrases.
     QStringList batchPhrases;
@@ -355,8 +357,8 @@ int main(int argc, char *argv[])
         for (MessageInfo &msg : messages) {
             if (!msg.source.isEmpty() && msg.translation.isEmpty()) {
                 batchPhrases.append(msg.source);
-                if (batchPhrases.size() >= apiCallSize) {
-                    QByteArray responseData = sendTranslationBatch(batchPhrases, apiKey , lang, langPostfix);
+                if (batchPhrases.size() >= config.apiCallSize) {
+                    QByteArray responseData = sendTranslationBatch(batchPhrases, apiKey, config.lang, config.langPostfix);
                     processResponse(responseData, translations);
                     batchPhrases.clear();
                 }
@@ -366,13 +368,13 @@ int main(int argc, char *argv[])
 
     // Process any remaining phrases.
     if (!batchPhrases.isEmpty()) {
-        QByteArray responseData = sendTranslationBatch(batchPhrases, apiKey, lang, langPostfix);
+        QByteArray responseData = sendTranslationBatch(batchPhrases, apiKey, config.lang, config.langPostfix);
         processResponse(responseData, translations);
         batchPhrases.clear();
     }
 
     // Write the updated translations back to the TS file.
-    if (!writeTsFile(tsFilePath, translations)) {
+    if (!writeTsFile(config.tsFilePath, translations)) {
         qCritical() << "Failed to write back to TS file.";
         return 1;
     }
