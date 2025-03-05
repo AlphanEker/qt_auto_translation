@@ -45,6 +45,11 @@ struct Config {
     int apiCallSize;       ///< Number of phrases per API call batch.
     QString lang;          ///< Target language for translation.
     QString langPostfix;   ///< Additional language specification (e.g., TR_tr, RU_ru).
+    QString csvToImport;   ///< If the importFromCSV option is true this file will be imported and written into ts file.
+    QString csvToExport;   ///< If the exportToCSV option is true this file will be written with the original source and translations.
+    bool importFromCSV;    ///< If true the program will read from csv and write into ts. Won't make GPT calls.
+    bool exportToCSV;      ///< If true translations will write into csv file.
+    bool writeBackToTs;    ///< If true the TS file will be overwritten and the translations will be put into place.
 };
 
 /// @brief Parses a TS (Translation Source) file and extracts message information.
@@ -496,11 +501,16 @@ Config loadConfig(const QString &configPath) {
 
     QJsonObject jsonObj = jsonDoc.object();
     Config config;
-    config.tsFilePath = jsonObj["ts_file_path"].toString();
-    config.apiKeyPath = jsonObj["api_key_path"].toString();
-    config.apiCallSize = jsonObj["api_call_size"].toInt(50);
-    config.lang = jsonObj["lang"].toString();
-    config.langPostfix = jsonObj["lang_postfix"].toString();
+    config.tsFilePath    = jsonObj["ts_file_path"].toString();
+    config.apiKeyPath    = jsonObj["api_key_path"].toString();
+    config.apiCallSize   = jsonObj["api_call_size"].toInt(50);
+    config.lang          = jsonObj["lang"].toString();
+    config.langPostfix   = jsonObj["lang_postfix"].toString();
+    config.csvToExport   = jsonObj["csv_to_export"].toString();
+    config.csvToImport   = jsonObj["csv_to_import"].toString();
+    config.exportToCSV   = jsonObj["export_to_csv"].toBool();
+    config.importFromCSV = jsonObj["import_from_csv"].toBool();
+    config.writeBackToTs = jsonObj["write_back_to_ts"].toBool();
 
     return config;
 }
@@ -543,35 +553,45 @@ int main(int argc, char *argv[]) {
     // Parse the TS file.
     QMap<QString, QList<MessageInfo>> translations = parseTsFile(config.tsFilePath);
 
-    // Batch processing: accumulate untranslated source phrases.
-    QStringList batchPhrases;
+    if(config.importFromCSV){
+        importFromCsv(config.csvToImport,translations);
+    }
+    else{
+        // Batch processing: accumulate untranslated source phrases.
+        QStringList batchPhrases;
 
-    // Iterate over each context and its messages.
-    for (auto contextIt = translations.begin(); contextIt != translations.end(); ++contextIt) {
-        QList<MessageInfo> &messages = contextIt.value();
-        for (MessageInfo &msg : messages) {
-            if (!msg.source.isEmpty() && msg.translation.isEmpty()) {
-                batchPhrases.append(msg.source);
-                if (batchPhrases.size() >= config.apiCallSize) {
-                    QByteArray responseData = sendTranslationBatch(batchPhrases, apiKey, config.lang, config.langPostfix);
-                    processResponse(responseData, translations);
-                    batchPhrases.clear();
+        // Iterate over each context and its messages.
+        for (auto contextIt = translations.begin(); contextIt != translations.end(); ++contextIt) {
+            QList<MessageInfo> &messages = contextIt.value();
+            for (MessageInfo &msg : messages) {
+                if (!msg.source.isEmpty() && msg.translation.isEmpty()) {
+                    batchPhrases.append(msg.source);
+                    if (batchPhrases.size() >= config.apiCallSize) {
+                        QByteArray responseData = sendTranslationBatch(batchPhrases, apiKey, config.lang, config.langPostfix);
+                        processResponse(responseData, translations);
+                        batchPhrases.clear();
+                    }
                 }
             }
         }
-    }
 
-    // Process any remaining phrases.
-    if (!batchPhrases.isEmpty()) {
-        QByteArray responseData = sendTranslationBatch(batchPhrases, apiKey, config.lang, config.langPostfix);
-        processResponse(responseData, translations);
-        batchPhrases.clear();
+        // Process any remaining phrases.
+        if (!batchPhrases.isEmpty()) {
+            QByteArray responseData = sendTranslationBatch(batchPhrases, apiKey, config.lang, config.langPostfix);
+            processResponse(responseData, translations);
+            batchPhrases.clear();
+        }
     }
 
     // Write the updated translations back to the TS file.
-    if (!writeTsFile(config.tsFilePath, translations)) {
+    if (config.writeBackToTs && !writeTsFile(config.tsFilePath, translations)) {
         qCritical() << "Failed to write back to TS file.";
         return 1;
+    }
+
+    // Export to csv to CSV if wanted
+    if(config.exportToCSV){
+        exportToCsv(config.csvToExport,translations);
     }
 
     return 0;
