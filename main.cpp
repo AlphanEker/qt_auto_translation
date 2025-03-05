@@ -20,21 +20,39 @@
 #include <QJsonArray>
 #include <QEventLoop>
 
-// Structure for location info.
+/// @brief Represents a source code location.
+/// @details This structure stores the filename and line number where a particular event occurs.
 struct Location {
-    QString filename;
-    int line;
+    QString filename; ///< The name of the file where the location is referenced.
+    int line; ///< The line number within the file.
 };
 
-// Structure for holding message information.
+/// @brief Holds information about a translation message.
+/// @details This structure contains details about a message, including its source text,
+/// translation, type, and multiple locations where it appears.
 struct MessageInfo {
-    QList<Location> locations;
-    QString source;
-    QString translation;
-    QString translationType; // e.g., "unfinished"
+    QList<Location> locations; ///< List of locations where the message is found.
+    QString source; ///< The original text of the message.
+    QString translation; ///< The translated text.
+    QString translationType; ///< The type of translation, e.g., "unfinished".
 };
 
-// Parse the TS file into a mapping from context names to lists of messages.
+/// @brief Holds configuration settings for the translation process.
+/// @details This structure stores file paths, API settings, and language options.
+struct Config {
+    QString tsFilePath;    ///< Path to the TS (translation source) file.
+    QString apiKeyPath;    ///< Path to the API key file.
+    int apiCallSize;       ///< Number of phrases per API call batch.
+    QString lang;          ///< Target language for translation.
+    QString langPostfix;   ///< Additional language specification (e.g., TR_tr, RU_ru).
+};
+
+/// @brief Parses a TS (Translation Source) file and extracts message information.
+/// @details This function reads an XML-based TS file and maps context names to lists of messages.
+/// Each message includes source text, translation, translation type, and location data.
+///
+/// @param filePath The path to the TS file to be parsed.
+/// @return A QMap where keys are context names and values are lists of MessageInfo structures.
 QMap<QString, QList<MessageInfo>> parseTsFile(const QString &filePath)
 {
     QMap<QString, QList<MessageInfo>> contextMap;
@@ -93,7 +111,14 @@ QMap<QString, QList<MessageInfo>> parseTsFile(const QString &filePath)
     return contextMap;
 }
 
-// Write the updated TS file with the new translations.
+/// @brief Writes updated translations to a TS (Translation Source) file.
+/// @details This function takes a mapping of context names to message lists and writes them
+/// into an XML-based TS file. It preserves structure, including context names, message sources,
+/// translations, and locations.
+///
+/// @param filePath The path to the TS file to be written.
+/// @param translations A QMap where keys are context names and values are lists of MessageInfo structures.
+/// @return True if the file was successfully written, false otherwise.
 bool writeTsFile(const QString &filePath, const QMap<QString, QList<MessageInfo>> &translations)
 {
     QFile file(filePath);
@@ -139,7 +164,12 @@ bool writeTsFile(const QString &filePath, const QMap<QString, QList<MessageInfo>
     return true;
 }
 
-// Read API key from file (assumes the file contains the key as plain text)
+/// @brief Reads an API key from a specified file.
+/// @details This function opens a file containing the API key as plain text, reads its contents,
+/// and trims any extraneous whitespace or UTF-8 BOM if present.
+///
+/// @param apiKeyPath The path to the file containing the API key.
+/// @return The API key as a QString, or an empty string if the file could not be read.
 QString readApiKeyFromFile(const QString &apiKeyPath)
 {
     QFile keyFile(apiKeyPath);
@@ -157,7 +187,15 @@ QString readApiKeyFromFile(const QString &apiKeyPath)
     return key;
 }
 
-// Send a batch of phrases to the GPT API and return the raw response data.
+/// @brief Sends a batch of phrases to the GPT API for translation.
+/// @details This function constructs a request to the GPT API, formatting the phrases as a prompt.
+/// The API response is expected to be a JSON array of objects with source and translated text.
+///
+/// @param phrases A list of phrases to be translated.
+/// @param apiKey The API key used for authentication.
+/// @param lang The target language for translation.
+/// @param langPostfix (EN_en, TR_tr ...)
+/// @return The raw response data from the API as a QByteArray, or an empty QByteArray if an error occurs.
 QByteArray sendTranslationBatch(const QStringList &phrases, const QString &apiKey,
                                 const QString &lang, const QString &langPostfix)
 {
@@ -218,7 +256,13 @@ QByteArray sendTranslationBatch(const QStringList &phrases, const QString &apiKe
     return responseData;
 }
 
-// Helper to process an API response and update the translations.
+/// @brief Processes an API response and updates the translation map.
+/// @details This function parses the JSON response from the GPT API, extracts translations,
+/// and updates the corresponding messages in the provided translation map.
+///
+/// @param responseData The raw API response data as a QByteArray.
+/// @param translations A reference to a QMap where keys are context names and values are lists of MessageInfo.
+///                     The function updates the translation fields of the messages.
 void processResponse(const QByteArray &responseData, QMap<QString, QList<MessageInfo>> &translations)
 {
     if (responseData.isEmpty())
@@ -273,16 +317,13 @@ void processResponse(const QByteArray &responseData, QMap<QString, QList<Message
     }
 }
 
-//---------------------------------------------------------------------
-
-struct Config {
-    QString tsFilePath;
-    QString apiKeyPath;
-    int apiCallSize;
-    QString lang;
-    QString langPostfix;
-};
-
+/// @brief Loads configuration settings from a JSON file.
+/// @details This function reads a JSON configuration file, parses its content,
+/// and populates a Config structure with the extracted values.
+/// Exits the program if the configuration file is missing or invalid.
+///
+/// @param configPath The path to the configuration file.
+/// @return A Config structure populated with the loaded settings.
 Config loadConfig(const QString &configPath) {
     QFile configFile(configPath);
     if (!configFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
