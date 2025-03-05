@@ -139,6 +139,155 @@ bool writeTsFile(const QString &filePath, const QMap<QString, QList<MessageInfo>
     return true;
 }
 
+// CSV Export Function
+bool exportToCsv(const QString &csvFilePath, const QMap<QString, QList<MessageInfo>> &translations)
+{
+    QFile file(csvFilePath);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        qWarning() << "Cannot open CSV file for writing:" << csvFilePath;
+        return false;
+    }
+    QTextStream out(&file);
+    // Write header (you can adjust the header order if desired).
+    out << "source,translation,translationType,locations\n";
+
+    // Helper lambda to escape a CSV field.
+    auto escapeCsvField = [](const QString &field) -> QString {
+        QString result = field;
+        if (result.contains(QLatin1Char(',')) ||
+            result.contains(QLatin1Char('"')) ||
+            result.contains('\n'))
+        {
+            result.replace("\"", "\"\"");
+            result = "\"" + result + "\"";
+        }
+        return result;
+    };
+
+    // Iterate over each context and its messages.
+    for (auto contextIt = translations.constBegin(); contextIt != translations.constEnd(); ++contextIt) {
+        const QList<MessageInfo> &messages = contextIt.value();
+        for (const MessageInfo &msg : messages) {
+            // Build a string for the locations.
+            QStringList locs;
+            for (const Location &loc : msg.locations) {
+                locs << QString("%1:%2").arg(loc.filename).arg(loc.line);
+            }
+            QString locationsStr = locs.join("; ");
+
+            // Write the CSV row.
+            out << escapeCsvField(msg.source) << ","
+                << escapeCsvField(msg.translation) << ","
+                << escapeCsvField(msg.translationType) << ","
+                << escapeCsvField(locationsStr) << "\n";
+        }
+    }
+    file.close();
+    return true;
+}
+
+// Helper: Parse a CSV line (a simple parser supporting quoted fields)
+QStringList parseCsvLine(const QString &line)
+{
+    QStringList result;
+    QString field;
+    bool inQuotes = false;
+    for (int i = 0; i < line.length(); ++i) {
+        QChar c = line.at(i);
+        if (inQuotes) {
+            if (c == '"') {
+                // Look ahead for an escaped quote.
+                if (i + 1 < line.length() && line.at(i + 1) == '"') {
+                    field.append('"');
+                    ++i;
+                } else {
+                    inQuotes = false;
+                }
+            } else {
+                field.append(c);
+            }
+        } else {
+            if (c == '"') {
+                inQuotes = true;
+            } else if (c == ',') {
+                result.append(field);
+                field.clear();
+            } else {
+                field.append(c);
+            }
+        }
+    }
+    result.append(field);
+    return result;
+}
+
+// CSV Import Function
+bool importFromCsv(const QString &csvFilePath, QMap<QString, QList<MessageInfo>> &translations)
+{
+    QFile file(csvFilePath);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        qWarning() << "Cannot open CSV file for reading:" << csvFilePath;
+        return false;
+    }
+    QTextStream in(&file);
+    // Read header line and ignore.
+    if (!in.atEnd())
+        in.readLine();
+
+    while (!in.atEnd()) {
+        QString line = in.readLine();
+        if (line.trimmed().isEmpty())
+            continue;
+
+        QStringList fields = parseCsvLine(line);
+        if (fields.size() < 4) {
+            qWarning() << "Invalid CSV line (not enough fields):" << line;
+            continue;
+        }
+
+        QString source = fields[0];
+        QString translation = fields[1].trimmed();
+        QString translationType = fields[2];
+        QString locationsStr = fields[3];
+
+        // If there's no translation provided, skip this row.
+        if (translation.isEmpty())
+            continue;
+
+        // Parse the locations (expecting format "filename:line" separated by semicolons).
+        QList<Location> newLocations;
+        QStringList locList = locationsStr.split(";", Qt::SkipEmptyParts);
+        for (QString locStr : locList) {
+            locStr = locStr.trimmed();
+            int colonIndex = locStr.lastIndexOf(':');
+            if (colonIndex != -1) {
+                QString filename = locStr.left(colonIndex).trimmed();
+                bool ok = false;
+                int lineNumber = locStr.mid(colonIndex + 1).trimmed().toInt(&ok);
+                if (ok) {
+                    newLocations.append({filename, lineNumber});
+                }
+            }
+        }
+
+        // For each matching message (by source text), update translation details.
+        for (auto contextIt = translations.begin(); contextIt != translations.end(); ++contextIt) {
+            QList<MessageInfo> &messages = contextIt.value();
+            for (MessageInfo &msg : messages) {
+                if (msg.source == source) {
+                    msg.translation = translation;
+                    msg.translationType = translationType;
+                    // Optionally update locations if desired.
+                    msg.locations = newLocations;
+                }
+            }
+        }
+    }
+    file.close();
+    return true;
+}
+
+
 // Read API key from file (assumes the file contains the key as plain text)
 QString readApiKeyFromFile(const QString &apiKeyPath)
 {
