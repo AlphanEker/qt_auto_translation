@@ -221,7 +221,12 @@ bool exportToCsv(const QString &csvFilePath, const QMap<QString, QList<MessageIn
     return true;
 }
 
-// Helper: Parse a CSV line (a simple parser supporting quoted fields)
+/// @brief Parses a single CSV line into a list of fields.
+/// @details This function supports quoted fields, handling escaped quotes within them.
+/// Fields are separated by commas.
+///
+/// @param line A single CSV line as a QString.
+/// @return A QStringList containing the parsed fields.
 QStringList parseCsvLine(const QString &line)
 {
     QStringList result;
@@ -256,7 +261,17 @@ QStringList parseCsvLine(const QString &line)
     return result;
 }
 
-// CSV Import Function
+/// @brief Imports translations from a CSV file and updates the translation map.
+/// @details This function reads a CSV file containing translation data and updates
+/// the provided QMap of translations. The CSV format is expected to have at least
+/// four columns: source text, translation, translation type, and locations.
+/// Locations are expected in the format "filename:line", separated by semicolons.
+///
+/// @param csvFilePath The path to the CSV file to import.
+/// @param translations A reference to a QMap where keys are context names and values
+///                     are lists of MessageInfo structures. The function updates
+///                     the translation fields of the messages.
+/// @return True if the CSV file was successfully read and processed, false otherwise.
 bool importFromCsv(const QString &csvFilePath, QMap<QString, QList<MessageInfo>> &translations)
 {
     QFile file(csvFilePath);
