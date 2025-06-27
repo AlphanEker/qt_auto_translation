@@ -183,8 +183,12 @@ bool exportToCsv(const QString &csvFilePath, const QMap<QString, QList<MessageIn
         return false;
     }
     QTextStream out(&file);
+
+    // Required for Excel UTF-8 detection
+    file.write("\xEF\xBB\xBF");  //OA
+
     // Write header (you can adjust the header order if desired).
-    out << "source,translation,translationType,locations\n";
+    out << "name,filename,line,source,translation\n";
 
     // Helper lambda to escape a CSV field.
     auto escapeCsvField = [](const QString &field) -> QString {
@@ -201,20 +205,17 @@ bool exportToCsv(const QString &csvFilePath, const QMap<QString, QList<MessageIn
 
     // Iterate over each context and its messages.
     for (auto contextIt = translations.constBegin(); contextIt != translations.constEnd(); ++contextIt) {
+        const QString &contextName = contextIt.key(); //OA //string for the page name
         const QList<MessageInfo> &messages = contextIt.value();
         for (const MessageInfo &msg : messages) {
-            // Build a string for the locations.
-            QStringList locs;
-            for (const Location &loc : msg.locations) {
-                locs << QString("%1:%2").arg(loc.filename).arg(loc.line);
-            }
-            QString locationsStr = locs.join("; ");
 
-            // Write the CSV row.
-            out << escapeCsvField(msg.source) << ","
-                << escapeCsvField(msg.translation) << ","
-                << escapeCsvField(msg.translationType) << ","
-                << escapeCsvField(locationsStr) << "\n";
+            for (const Location &loc : msg.locations) {
+                out << escapeCsvField(contextName) << ","
+                    << escapeCsvField(loc.filename) << ","
+                    << loc.line << ","
+                    << escapeCsvField(msg.source) << ","
+                    << escapeCsvField(msg.translation) << "\n";
+            }
         }
     }
     file.close();
@@ -290,23 +291,24 @@ bool importFromCsv(const QString &csvFilePath, QMap<QString, QList<MessageInfo>>
             continue;
 
         QStringList fields = parseCsvLine(line);
-        if (fields.size() < 4) {
+        if (fields.size() < 5) {
             qWarning() << "Invalid CSV line (not enough fields):" << line;
             continue;
         }
 
-        QString source = fields[0];
-        QString translation = fields[1].trimmed();
-        QString translationType = fields[2];
-        QString locationsStr = fields[3];
+        QString name = fields[0].trimmed();
+        QString filename = fields[1].trimmed();
+        QString lineStr = fields[2].trimmed();
+        QString source = fields[3].trimmed();
+        QString translation = fields[4].trimmed();
 
         // If there's no translation provided, skip this row.
         if (translation.isEmpty())
             continue;
 
-        // Parse the locations (expecting format "filename:line" separated by semicolons).
+/*        // Parse the locations (expecting format "filename:line" separated by semicolons).
         QList<Location> newLocations;
-        QStringList locList = locationsStr.split(";", Qt::SkipEmptyParts);
+        QStringList locList = line.split(";", Qt::SkipEmptyParts);
         for (QString locStr : locList) {
             locStr = locStr.trimmed();
             int colonIndex = locStr.lastIndexOf(':');
@@ -319,8 +321,21 @@ bool importFromCsv(const QString &csvFilePath, QMap<QString, QList<MessageInfo>>
                 }
             }
         }
+*/
 
-        // For each matching message (by source text), update translation details.
+        bool ok = false;
+        int lineNumber = lineStr.toInt(&ok);
+        if(!ok) {
+            qWarning() << "Invalid line number:" << lineStr << "in CSV line:" << line;
+            continue;
+        }
+
+        Location newLocation{filename, lineNumber};
+        QList<Location> newLocations;
+        newLocations.append(newLocation);
+
+
+/*        // For each matching message (by source text), update translation details.
         for (auto contextIt = translations.begin(); contextIt != translations.end(); ++contextIt) {
             QList<MessageInfo> &messages = contextIt.value();
             for (MessageInfo &msg : messages) {
@@ -332,6 +347,30 @@ bool importFromCsv(const QString &csvFilePath, QMap<QString, QList<MessageInfo>>
                 }
             }
         }
+*/
+        // Find the context by name (contextName) //OA
+        if (!translations.contains(name)) {
+            qWarning() << "Context not found:" << name;
+            continue;
+        }
+
+        QList<MessageInfo> &messages = translations[name];
+
+        // Find the message by source text inside this context
+        bool found = false;
+        for (MessageInfo &msg : messages) {
+            if (msg.source == source) {
+                msg.translation = translation;
+                found = true;
+                break;
+            }
+        }
+
+        if (!found) {
+            qWarning() << "Message with source not found in context" << name << ":" << source;
+            // Optionally add a new message here if needed
+        }
+
     }
     file.close();
     return true;
@@ -499,6 +538,7 @@ void processResponse(const QByteArray &responseData, QMap<QString, QList<Message
 /// @param configPath The path to the configuration file.
 /// @return A Config structure populated with the loaded settings.
 Config loadConfig(const QString &configPath) {
+
     QFile configFile(configPath);
     if (!configFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
         qCritical() << "Config dosyası açılamadı!";
