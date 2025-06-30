@@ -302,9 +302,6 @@ bool importFromCsv(const QString &csvFilePath, QMap<QString, QList<MessageInfo>>
         QString source = fields[3].trimmed();
         QString translation = fields[4].trimmed();
 
-        // If there's no translation provided, skip this row.
-        if (translation.isEmpty())
-            continue;
 
 /*        // Parse the locations (expecting format "filename:line" separated by semicolons).
         QList<Location> newLocations;
@@ -361,6 +358,13 @@ bool importFromCsv(const QString &csvFilePath, QMap<QString, QList<MessageInfo>>
         for (MessageInfo &msg : messages) {
             if (msg.source == source) {
                 msg.translation = translation;
+
+                if (translation.isEmpty()) {
+                    msg.translationType = "unfinished";
+                } else {
+                    msg.translationType.clear();  // Clear if translation exists
+                }
+
                 found = true;
                 break;
             }
