@@ -77,4 +77,4 @@ build-*/
 CMakeLists.txt.user
 CMakeFiles
 
-.qt
+.qt"secrets.txt" 
