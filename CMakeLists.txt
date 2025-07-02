@@ -9,10 +9,15 @@ set(CMAKE_AUTORCC ON)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+
+add_subdirectory(translation)
+add_subdirectory(translatorGUI)
+
 find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Core LinguistTools)
 find_package(Qt6 REQUIRED COMPONENTS LinguistTools Core Network)
 
-set(TS_FILES qt_auto_translation_en_US.ts)
+set(TS_FILES
+    language_tr_TR.ts)
 
 add_executable(qt_auto_translation
   main.cpp
@@ -20,7 +25,9 @@ add_executable(qt_auto_translation
 )
 target_link_libraries(qt_auto_translation PRIVATE
     Qt${QT_VERSION_MAJOR}::Network
-    Qt${QT_VERSION_MAJOR}::Core)
+    Qt${QT_VERSION_MAJOR}::Core
+    translation
+)
 
 if(COMMAND qt_create_translation)
     qt_create_translation(QM_FILES ${CMAKE_SOURCE_DIR} ${TS_FILES})
@@ -33,3 +40,5 @@ install(TARGETS qt_auto_translation
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )
+
+

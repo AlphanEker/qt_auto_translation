@@ -1,13 +1,12 @@
 {
-    "ts_file_path": "C:\\Users\\alphan.eker\\Desktop\\language_tr_TR.ts",
-    "api_key_path": "C:\\dev\\secrets.txt",
-    "api_call_size": 90,
-    "lang": "Turkish",
-    "lang_postfix": "tr",
-    "csv_to_export": "C:\\Users\\alphan.eker\\Desktop\\test.csv",
-    "csv_to_import": "C:\\Users\\alphan.eker\\Desktop\\test.csv",
-    "export_to_csv": false,
+    "api_call_size": 100,
+    "api_key_path": "C:/Users/Onur Aroymak/Desktop/Onur/Other/MS Spektral/qt_auto_translation/secrets.txt",
+    "csv_to_export": "C:/Users/Onur Aroymak/Desktop/test.csv",
+    "csv_to_import": "C:/Users/Onur Aroymak/Desktop/test.csv",
+    "export_to_csv": true,
     "import_from_csv": false,
+    "lang": "French",
+    "lang_postfix": "fr_FR",
+    "ts_file_path": "C:/Users/Onur Aroymak/Desktop/Onur/Other/MS Spektral/qt_auto_translation/language_tr_TR.ts",
     "write_back_to_ts": true
-
 }
