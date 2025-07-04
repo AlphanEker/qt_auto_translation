@@ -141,6 +141,19 @@
      <string>Example: en_US, tr_TR...</string>
     </property>
    </widget>
+   <widget class="QPushButton" name="clearButton">
+    <property name="geometry">
+     <rect>
+      <x>240</x>
+      <y>330</y>
+      <width>80</width>
+      <height>18</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>Clear</string>
+    </property>
+   </widget>
   </widget>
  </widget>
  <resources/>

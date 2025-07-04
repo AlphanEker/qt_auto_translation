@@ -19,6 +19,7 @@ public:
 
 private slots:
     void handleTranslateButton();
+    void handleClearButton();
 
 private:
     Ui::MainWindow *ui;

@@ -39,6 +39,7 @@ struct Config {
     bool importFromCSV;    ///< If true the program will read from csv and write into ts. Won't make GPT calls.
     bool exportToCSV;      ///< If true translations will write into csv file.
     bool writeBackToTs;    ///< If true the TS file will be overwritten and the translations will be put into place.
+    bool clearTranslation; ///< If true all the existing translation will be removed
 };
 
 
@@ -48,9 +49,9 @@ bool exportToCsv(const QString &csvFilePath, const QMap<QString, QList<MessageIn
 QStringList parseCsvLine(const QString &line);
 bool importFromCsv(const QString &csvFilePath, QMap<QString, QList<MessageInfo>> &translations);
 QString readApiKeyFromFile(const QString &apiKeyPath);
-QByteArray sendTranslationBatch(const QStringList &phrases, const QString &apiKey,
-                                const QString &lang, const QString &langPostfix);
+QByteArray sendTranslationBatch(const QStringList &phrases, const QString &apiKey, const QString &lang, const QString &langPostfix);
 void processResponse(const QByteArray &responseData, QMap<QString, QList<MessageInfo>> &translations);
+bool clearTranslation(const QString &filePath, const QString &csvFilePath, const QString &languageCode);
 Config loadConfig(const QString &configPath);
 
 #endif // TRANSLATION.H

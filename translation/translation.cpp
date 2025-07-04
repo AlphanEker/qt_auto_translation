@@ -93,8 +93,9 @@ QMap<QString, QList<MessageInfo>> parseTsFile(const QString &filePath)
 ///
 /// @param filePath The path to the TS file to be written.
 /// @param translations A QMap where keys are context names and values are lists of MessageInfo structures.
+/// @param languageCode The post fix of the translation language
 /// @return True if the file was successfully written, false otherwise.
-bool writeTsFile(const QString &filePath, const QMap<QString, QList<MessageInfo>> &translations, const QString &languageCode) //OA added the labguage code argument
+bool writeTsFile(const QString &filePath, const QMap<QString, QList<MessageInfo>> &translations, const QString &languageCode) //OA added the language code argument
 {
     QFile file(filePath);
     if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
@@ -474,6 +475,44 @@ void processResponse(const QByteArray &responseData, QMap<QString, QList<Message
     }
 }
 
+/// @brief Clears all the translations
+/// @details This function clears the already exsting translations in the ts
+/// and csv files and sets the translation type to unfinished
+///
+bool clearTranslation(const QString &filePath, const QString &csvFilePath, const QString &languageCode)
+{
+    qDebug() << "Clearing translations in TS file:" << filePath;
+
+    QMap<QString, QList<MessageInfo>> contextMap = parseTsFile(filePath);
+
+    for (auto &messages : contextMap) {
+        for (auto &msg : messages) {
+            msg.translation.clear();
+            msg.translationType = "unfinished";
+        }
+    }
+
+    if (!writeTsFile(filePath, contextMap, languageCode)) {
+        qWarning() << "Failed to write cleared TS file.";
+        return false;
+    }
+
+    qDebug() << "TS file cleared.";
+
+    if (!csvFilePath.isEmpty()) {
+        qDebug() << "Clearing translations in CSV file:" << csvFilePath;
+
+        if (!exportToCsv(csvFilePath, contextMap)) {
+            qWarning() << "Failed to write cleared CSV file.";
+            return false;
+        }
+
+        qDebug() << "CSV file cleared.";
+    }
+
+    return true;
+}
+
 /// @brief Loads configuration settings from a JSON file.
 /// @details This function reads a JSON configuration file, parses its content,
 /// and populates a Config structure with the extracted values.
@@ -510,6 +549,7 @@ Config loadConfig(const QString &configPath) {
     config.exportToCSV   = jsonObj["export_to_csv"].toBool();
     config.importFromCSV = jsonObj["import_from_csv"].toBool();
     config.writeBackToTs = jsonObj["write_back_to_ts"].toBool();
+    config.clearTranslation = jsonObj["clear_translation"].toBool();
 
     return config;
 }

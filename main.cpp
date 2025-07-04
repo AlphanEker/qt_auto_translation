@@ -30,6 +30,23 @@ int main(int argc, char *argv[]) {
     qDebug() << "API Call Size:" << config.apiCallSize;
     qDebug() << "Language:" << config.lang;
     qDebug() << "Language Postfix:" << config.langPostfix;
+    qDebug() << "Clear Translation:" << config.clearTranslation;
+
+    // Parse the TS file.
+    QMap<QString, QList<MessageInfo>> translations = parseTsFile(config.tsFilePath);
+
+    // If clearTranslation is called, perform it and exit
+    if (config.clearTranslation) {
+        qDebug() << "Clearing translations as requested...";
+        bool success = clearTranslation(config.tsFilePath, config.csvToExport, config.langPostfix);
+        if (!success) {
+            qCritical() << "Failed to clear translations.";
+            return 1;
+        }
+        qDebug() << "Translations cleared successfully.";
+        return 0;
+    }
+
 
     // Read the API key.
     QString apiKey = readApiKeyFromFile(config.apiKeyPath);
@@ -37,9 +54,6 @@ int main(int argc, char *argv[]) {
         qCritical() << "API key is empty or could not be read.";
         return 1;
     }
-
-    // Parse the TS file.
-    QMap<QString, QList<MessageInfo>> translations = parseTsFile(config.tsFilePath);
 
     if(config.importFromCSV){
         importFromCsv(config.csvToImport,translations);
