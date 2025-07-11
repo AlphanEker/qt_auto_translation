@@ -1,6 +1,9 @@
 #include <QCoreApplication>
 #include <QCommandLineParser>
 #include <QCommandLineOption>
+#include <QFile>
+#include <QFileInfo>
+#include <QDir>
 
 #include "translation.h"
 
@@ -24,6 +27,23 @@ int main(int argc, char *argv[]) {
 
     QString configPath = parser.value(configPathOption);
     Config config = loadConfig(configPath);
+
+    QString baseDir = QFileInfo(config.templateTsFile).absolutePath();
+    QString tsFileName = QString("language_%1.ts").arg(config.langPostfix);
+    QString tsFilePath = QDir(baseDir).filePath(tsFileName);
+
+
+    // If TS file doesn't exist, create it from the template
+    if (!QFile::exists(tsFilePath)) {
+        qDebug() << "TS file does not exist. Creating from template...";
+        if (!createTsFileFromTemplate(config.templateTsFile, tsFilePath, config.langPostfix)) {
+            qCritical() << "Failed to create TS file from template.";
+            return 1;
+        }
+    }
+
+    // Now update the config to use this generated or existing file
+    config.tsFilePath = tsFilePath;
 
     qDebug() << "TS File Path:" << config.tsFilePath;
     qDebug() << "API Key Path:" << config.apiKeyPath;
@@ -59,29 +79,28 @@ int main(int argc, char *argv[]) {
         importFromCsv(config.csvToImport,translations);
     }
     else{
-        // Batch processing: accumulate untranslated source phrases.
-        QStringList batchPhrases;
-
-        // Iterate over each context and its messages.
         for (auto contextIt = translations.begin(); contextIt != translations.end(); ++contextIt) {
             QList<MessageInfo> &messages = contextIt.value();
+            const QString &contextName = contextIt.key();
+            QStringList batchPhrases;
+
             for (MessageInfo &msg : messages) {
                 if (!msg.source.isEmpty() && msg.translation.isEmpty()) {
                     batchPhrases.append(msg.source);
                     if (batchPhrases.size() >= config.apiCallSize) {
-                        QByteArray responseData = sendTranslationBatch(batchPhrases, apiKey, config.lang, config.langPostfix);
-                        processResponse(responseData, translations);
+                        QByteArray responseData = sendTranslationBatch(batchPhrases, apiKey, config.lang, config.langPostfix, contextName);
+                        processResponse(responseData, messages); // Only update this context
                         batchPhrases.clear();
                     }
                 }
             }
-        }
 
-        // Process any remaining phrases.
-        if (!batchPhrases.isEmpty()) {
-            QByteArray responseData = sendTranslationBatch(batchPhrases, apiKey, config.lang, config.langPostfix);
-            processResponse(responseData, translations);
-            batchPhrases.clear();
+            // ✅ Moved here: make sure remaining phrases in *this* context get processed
+            if (!batchPhrases.isEmpty()) {
+                QByteArray responseData = sendTranslationBatch(batchPhrases, apiKey, config.lang, config.langPostfix, contextName);
+                processResponse(responseData, messages);  // Update just this context
+                batchPhrases.clear();
+            }
         }
     }
 

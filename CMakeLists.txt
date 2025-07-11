@@ -17,7 +17,7 @@ find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Core LinguistTools)
 find_package(Qt6 REQUIRED COMPONENTS LinguistTools Core Network)
 
 set(TS_FILES
-    language_tr_TR.ts)
+    language_en_US.ts)
 
 add_executable(qt_auto_translation
   main.cpp

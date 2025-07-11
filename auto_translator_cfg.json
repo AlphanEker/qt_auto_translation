@@ -6,8 +6,9 @@
     "csv_to_import": "C:/Users/Onur Aroymak/Desktop/test.csv",
     "export_to_csv": true,
     "import_from_csv": false,
-    "lang": "Turkish",
-    "lang_postfix": "tr_TR",
-    "ts_file_path": "C:/Users/Onur Aroymak/Desktop/Onur/Other/MS Spektral/qt_auto_translation/language_tr_TR.ts",
-    "write_back_to_ts": false
+    "lang": "German",
+    "lang_postfix": "de_DE",
+    "template_ts_file": "C:/Users/Onur Aroymak/Desktop/Onur/Other/MS Spektral/qt_auto_translation/language_en_US.ts",
+    "ts_file_path": "",
+    "write_back_to_ts": true
 }

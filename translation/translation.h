@@ -40,6 +40,8 @@ struct Config {
     bool exportToCSV;      ///< If true translations will write into csv file.
     bool writeBackToTs;    ///< If true the TS file will be overwritten and the translations will be put into place.
     bool clearTranslation; ///< If true all the existing translation will be removed
+    QString templateTsFile; ///< Path to the original language_en_US.ts template
+
 };
 
 
@@ -49,9 +51,11 @@ bool exportToCsv(const QString &csvFilePath, const QMap<QString, QList<MessageIn
 QStringList parseCsvLine(const QString &line);
 bool importFromCsv(const QString &csvFilePath, QMap<QString, QList<MessageInfo>> &translations);
 QString readApiKeyFromFile(const QString &apiKeyPath);
-QByteArray sendTranslationBatch(const QStringList &phrases, const QString &apiKey, const QString &lang, const QString &langPostfix);
-void processResponse(const QByteArray &responseData, QMap<QString, QList<MessageInfo>> &translations);
+QByteArray sendTranslationBatch(const QStringList &phrases, const QString &apiKey, const QString &lang, const QString &langPostfix, const QString &contextName);
+void processResponse(const QByteArray &responseData, QList<MessageInfo> &messages);
 bool clearTranslation(const QString &filePath, const QString &csvFilePath, const QString &languageCode);
 Config loadConfig(const QString &configPath);
+bool createTsFileFromTemplate(const QString &templatePath, const QString &newPath, const QString &langPostfix);
+
 
 #endif // TRANSLATION.H

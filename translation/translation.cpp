@@ -86,6 +86,40 @@ QMap<QString, QList<MessageInfo>> parseTsFile(const QString &filePath)
     return contextMap;
 }
 
+bool createTsFileFromTemplate(const QString &templatePath, const QString &newPath, const QString &langPostfix)
+{
+    QFile templateFile(templatePath);
+    if (!templateFile.exists()) {
+        qWarning() << "Template TS file does not exist:" << templatePath;
+        return false;
+    }
+
+    if (!templateFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        qWarning() << "Cannot open template file:" << templatePath;
+        return false;
+    }
+
+    QString content = QString::fromUtf8(templateFile.readAll());
+    templateFile.close();
+
+    // Replace the language attribute
+    content.replace(QRegularExpression(R"(language="[^"]*")"), QString(R"(language="%1")").arg(langPostfix));
+
+    QFile newFile(newPath);
+    if (!newFile.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        qWarning() << "Cannot create new TS file:" << newPath;
+        return false;
+    }
+
+    QTextStream out(&newFile);
+    out.setEncoding(QStringConverter::Utf8);
+    out << content;
+    newFile.close();
+    return true;
+}
+
+
+
 /// @brief Writes updated translations to a TS (Translation Source) file.
 /// @details This function takes a mapping of context names to message lists and writes them
 /// into an XML-based TS file. It preserves structure, including context names, message sources,
@@ -355,13 +389,17 @@ QString readApiKeyFromFile(const QString &apiKeyPath)
 /// @param langPostfix (EN_en, TR_tr ...)
 /// @return The raw response data from the API as a QByteArray, or an empty QByteArray if an error occurs.
 QByteArray sendTranslationBatch(const QStringList &phrases, const QString &apiKey,
-                                const QString &lang, const QString &langPostfix)
+                                const QString &lang, const QString &langPostfix,
+                                const QString &contextName)
 {
     // Build the prompt by listing the phrases (each on a new line).
-    QString prompt = QString("Translate the following phrases into %1 (%2). Return only a JSON array of objects "
-                             "in the format [{\"source\": \"<original>\", \"translation\": \"<translated>\"}].\nPhrases:\n%3")
+    QString prompt = QString("Translate the following phrases into %1 (%2). "
+                             "These phrases are part of a software system under the context of %3"
+                             "Use that context to choose accurate, natural translations. "
+                             "Return only a JSON array of objects "
+                             "in the format [{\"source\": \"<original>\", \"translation\": \"<translated>\"}].\nPhrases:\n%4")
                          .arg(lang).arg(langPostfix)
-                         .arg(phrases.join("\n"));
+                         .arg(contextName).arg(phrases.join("\n"));
 
     QJsonObject requestBody;
     requestBody["model"] = "gpt-4o-mini";
@@ -421,7 +459,7 @@ QByteArray sendTranslationBatch(const QStringList &phrases, const QString &apiKe
 /// @param responseData The raw API response data as a QByteArray.
 /// @param translations A reference to a QMap where keys are context names and values are lists of MessageInfo.
 ///                     The function updates the translation fields of the messages.
-void processResponse(const QByteArray &responseData, QMap<QString, QList<MessageInfo>> &translations)
+void processResponse(const QByteArray &responseData, QList<MessageInfo> &messages)
 {
     if (responseData.isEmpty())
         return;
@@ -431,12 +469,14 @@ void processResponse(const QByteArray &responseData, QMap<QString, QList<Message
         qWarning() << "Failed to parse API response as JSON.";
         return;
     }
+
     QJsonObject responseObj = responseDoc.object();
     QJsonArray choices = responseObj["choices"].toArray();
     if (choices.isEmpty()) {
         qWarning() << "No choices returned from API.";
         return;
     }
+
     QJsonObject firstChoice = choices.first().toObject();
     QJsonObject messageObj = firstChoice["message"].toObject();
     QString content = messageObj["content"].toString();
@@ -452,6 +492,7 @@ void processResponse(const QByteArray &responseData, QMap<QString, QList<Message
         qWarning() << "Failed to parse the returned translation JSON.";
         return;
     }
+
     QJsonArray translationsArray = parsedContent.array();
 
     // Build a mapping from source to translation.
@@ -466,20 +507,21 @@ void processResponse(const QByteArray &responseData, QMap<QString, QList<Message
         }
     }
 
-    // Update the context map with the translations.
-    for (auto &messages : translations) {
-        for (auto &msg : messages) {
-            if (translationMapping.contains(msg.source))
-                msg.translation = translationMapping.value(msg.source);
+    // Update ONLY the given messages list.
+    for (MessageInfo &msg : messages) {
+        if (translationMapping.contains(msg.source)) {
+            msg.translation = translationMapping[msg.source];
+            msg.translationType.clear(); // Clear unfinished flag
         }
     }
 }
+
 
 /// @brief Clears all the translations
 /// @details This function clears the already exsting translations in the ts
 /// and csv files and sets the translation type to unfinished
 ///
-bool clearTranslation(const QString &filePath, const QString &csvFilePath, const QString &languageCode)
+bool clearTranslation(const QString &filePath, const QString & /*csvFilePath*/, const QString &languageCode)
 {
     qDebug() << "Clearing translations in TS file:" << filePath;
 
@@ -498,7 +540,7 @@ bool clearTranslation(const QString &filePath, const QString &csvFilePath, const
     }
 
     qDebug() << "TS file cleared.";
-
+/*
     if (!csvFilePath.isEmpty()) {
         qDebug() << "Clearing translations in CSV file:" << csvFilePath;
 
@@ -509,6 +551,7 @@ bool clearTranslation(const QString &filePath, const QString &csvFilePath, const
 
         qDebug() << "CSV file cleared.";
     }
+*/
 
     return true;
 }
@@ -550,6 +593,8 @@ Config loadConfig(const QString &configPath) {
     config.importFromCSV = jsonObj["import_from_csv"].toBool();
     config.writeBackToTs = jsonObj["write_back_to_ts"].toBool();
     config.clearTranslation = jsonObj["clear_translation"].toBool();
+    config.templateTsFile = jsonObj["template_ts_file"].toString();
+
 
     return config;
 }
